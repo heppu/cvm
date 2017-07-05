@@ -16,7 +16,11 @@ type ChromeVersion struct {
 	Patch int
 }
 
-func GetVersions() (versions []*ChromeVersion, err error) {
+func (c ChromeVersion) String() string {
+	return fmt.Sprintf("%d.%d.%d.%d", c.Major, c.Minor, c.Build, c.Patch)
+}
+
+func GetVersions() (versions []ChromeVersion, err error) {
 	cmd := exec.Command("git", "ls-remote", "--tags", "http://chromium.googlesource.com/chromium/src")
 	var stdout io.Reader
 	if stdout, err = cmd.StdoutPipe(); err != nil {
@@ -31,8 +35,39 @@ func GetVersions() (versions []*ChromeVersion, err error) {
 		line := scanner.Text()
 		if i := strings.Index(line, "refs/tags/"); i != -1 {
 			if cv, err := ParseChromeVersionString(line[i+10:]); err == nil {
-				versions = append(versions, cv)
+				versions = append(versions, *cv)
 			}
+		} else {
+			fmt.Println(string(line))
+		}
+	}
+
+	if err = scanner.Err(); err != nil {
+		return
+	}
+	return
+}
+
+func GetHashMap() (versions map[string]ChromeVersion, err error) {
+	cmd := exec.Command("git", "ls-remote", "--tags", "http://chromium.googlesource.com/chromium/src")
+	var stdout io.Reader
+	if stdout, err = cmd.StdoutPipe(); err != nil {
+		return
+	}
+	if err = cmd.Start(); err != nil {
+		return
+	}
+
+	versions = make(map[string]ChromeVersion)
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if i := strings.Index(line, "refs/tags/"); i != -1 {
+			if cv, err := ParseChromeVersionString(line[i+10:]); err == nil {
+				versions[line[0:40]] = *cv
+			}
+		} else {
+			fmt.Println(string(line))
 		}
 	}
 

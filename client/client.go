@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/heppu/cvm/git"
 )
 
 const (
@@ -42,6 +44,13 @@ type FileInfo struct {
 	Updated   time.Time `json:"updated"`
 	Size      string    `json:"size"`
 	MediaLink string    `json:"mediaLink"`
+	Metadata  Metadata  `json:"metadata"`
+}
+
+type Metadata struct {
+	CrCommitPositionNumber string `json:"cr-commit-position-number"`
+	CrGitCommit            string `json:"cr-git-commit"`
+	CrCommitPosition       string `json:"cr-commit-position"`
 }
 
 type Revisions struct {
@@ -93,6 +102,13 @@ func NewClient() *Client {
 	return &Client{
 		client: &http.Client{},
 	}
+}
+
+func (c *Client) GetVersionInfo(cv git.ChromeVersion) (info VersionInfo, err error) {
+	url := fmt.Sprintf(POSITION_LOOKUP, cv)
+	fmt.Println(url)
+	err = c.getJson(url, &info)
+	return
 }
 
 func (c *Client) GetAll() error {
@@ -158,7 +174,13 @@ func (c *Client) GetFilesForBuild(build string) (items []FileInfo, err error) {
 	return
 }
 
-func (c *Client) GetRevisions(build string) (items []FileInfo, err error) {
+func (c *Client) GetBuildInfo(build string) (fr FilesResponse, err error) {
+	url := fmt.Sprintf(FILES_URL, build)
+	err = c.getJson(url, &fr)
+	return
+}
+
+func (c *Client) GetRevisions(build string) (revisions Revisions, err error) {
 	data := &FilesResponse{}
 	if err = c.getJson(fmt.Sprintf(FILES_URL, build), data); err != nil {
 		return
@@ -176,8 +198,32 @@ func (c *Client) GetRevisions(build string) (items []FileInfo, err error) {
 		return
 	}
 
-	// TODO
-	c.getJson(revUrl, nil)
+	c.getJson(revUrl, &revisions)
+	return
+}
+
+func (c *Client) GetZip(build string) (file string, err error) {
+	data := &FilesResponse{}
+	url := fmt.Sprintf(FILES_URL, build)
+	fmt.Println(url)
+	if err = c.getJson(url, data); err != nil {
+		return
+	}
+	fmt.Println(data)
+	var fileUrl string
+	for _, fi := range data.Items {
+		fmt.Println(fi.Name)
+		if strings.HasSuffix(fi.Name, "linux.zip") {
+			fileUrl = fi.MediaLink
+			break
+		}
+	}
+	if fileUrl == "" {
+		err = fmt.Errorf("No linux.zip url found")
+		return
+	}
+
+	file = fileUrl
 	return
 }
 
@@ -186,7 +232,14 @@ func (c *Client) getJson(url string, data interface{}) error {
 	if err != nil {
 		return err
 	}
-	return json.NewDecoder(res.Body).Decode(data)
+
+	if err = json.NewDecoder(res.Body).Decode(data); err != nil {
+		data, err := ioutil.ReadAll(res.Body)
+		fmt.Println("adasd", err)
+		fmt.Println(string(data))
+	}
+	res.Body.Close()
+	return err
 }
 
 func (c *Client) get(url string) (data []byte, err error) {
